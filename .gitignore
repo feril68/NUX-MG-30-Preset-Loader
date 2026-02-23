@@ -1,0 +1,37 @@
+# IDE & System files
+.DS_Store
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Node dependencies
+node_modules/
+
+# Build outputs
+dist/
+dist_electron/
+out/
+release/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+
+# Environment variables & Cache
+.env
+.env.local
+.eslintcache
+.cache/
+
+# Electron-specific
+*.deb
+*.exe
+*.dmg
+*.AppImage
