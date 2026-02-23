@@ -11,7 +11,7 @@ export class MG30Controller {
   }
 
   get isConnected(): boolean {
-    return !!this.engine.output
+    return this.engine.isConnected
   }
 
   private wait(ms: number): Promise<void> {

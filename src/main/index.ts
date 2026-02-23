@@ -1,6 +1,74 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, session } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import * as Midi from '@julusian/midi'
+
+const DEBUG_MIDI = process.env.DEBUG_MIDI === '1'
+
+if (process.platform === 'win32') {
+  app.commandLine.appendSwitch('enable-features', 'MidiManagerWinrt')
+}
+
+const icon = join(__dirname, '../../resources/icon.png')
+
+let nativeOutput: InstanceType<typeof Midi.Output> | null = null
+
+function listNativeMidiPorts(): { inputs: string[]; outputs: string[] } {
+  const input = new Midi.Input()
+  const output = new Midi.Output()
+
+  const inputs = Array.from({ length: input.getPortCount() }, (_, index) =>
+    input.getPortName(index)
+  )
+  const outputs = Array.from({ length: output.getPortCount() }, (_, index) =>
+    output.getPortName(index)
+  )
+
+  return { inputs, outputs }
+}
+
+function closeNativeOutput(): void {
+  if (!nativeOutput) return
+
+  try {
+    nativeOutput.closePort()
+  } catch (error) {
+    console.warn('[MIDI] native close failed', error)
+  }
+
+  nativeOutput = null
+}
+
+function connectNativeOutput(targetName = 'MG-30'): {
+  connected: boolean
+  selectedOutput: string | null
+  inputs: string[]
+  outputs: string[]
+} {
+  const ports = listNativeMidiPorts()
+  const outputIndex = ports.outputs.findIndex((name) => name.includes(targetName))
+
+  closeNativeOutput()
+
+  if (outputIndex === -1) {
+    return {
+      connected: false,
+      selectedOutput: null,
+      inputs: ports.inputs,
+      outputs: ports.outputs
+    }
+  }
+
+  nativeOutput = new Midi.Output()
+  nativeOutput.openPort(outputIndex)
+
+  return {
+    connected: true,
+    selectedOutput: ports.outputs[outputIndex],
+    inputs: ports.inputs,
+    outputs: ports.outputs
+  }
+}
 
 function createWindow(): void {
   // Create the browser window.
@@ -38,6 +106,42 @@ function createWindow(): void {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
+  const isMidiPermission = (permission: string): boolean => {
+    return permission.toLowerCase().includes('midi')
+  }
+  let hasLoggedMidiPermission = false
+
+  if (process.platform === 'win32') {
+    if (DEBUG_MIDI) {
+      console.log('[MIDI] disable-features:', app.commandLine.getSwitchValue('disable-features'))
+      console.log('[MIDI] enable-features:', app.commandLine.getSwitchValue('enable-features'))
+    }
+  }
+
+  session.defaultSession.setPermissionRequestHandler(
+    (webContents, permission, callback, details) => {
+      const allowed = isMidiPermission(permission)
+      if (allowed && !hasLoggedMidiPermission && DEBUG_MIDI) {
+        hasLoggedMidiPermission = true
+        const detailRecord = details as unknown as Record<string, unknown>
+        console.log('[MIDI] permission-request', {
+          permission,
+          details,
+          requestingOrigin: detailRecord.requestingOrigin,
+          securityOrigin: detailRecord.securityOrigin,
+          mediaTypes: detailRecord.mediaTypes,
+          url: webContents?.getURL()
+        })
+      }
+
+      if (allowed) {
+        callback(true)
+        return
+      }
+      callback(false)
+    }
+  )
+
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.electron')
 
@@ -50,6 +154,27 @@ app.whenReady().then(() => {
 
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
+
+  ipcMain.handle('midi:native-list', () => {
+    const ports = listNativeMidiPorts()
+    if (DEBUG_MIDI) {
+      console.log('[MIDI] native-list', ports)
+    }
+    return ports
+  })
+
+  ipcMain.handle('midi:native-connect', (_, targetName: string) => {
+    const result = connectNativeOutput(targetName)
+    if (DEBUG_MIDI) {
+      console.log('[MIDI] native-connect', result)
+    }
+    return result
+  })
+
+  ipcMain.on('midi:native-send', (_, data: number[]) => {
+    if (!nativeOutput) return
+    nativeOutput.sendMessage(data)
+  })
 
   createWindow()
 
@@ -64,6 +189,7 @@ app.whenReady().then(() => {
 // for applications and their menu bar to stay active until the user quits
 // explicitly with Cmd + Q.
 app.on('window-all-closed', () => {
+  closeNativeOutput()
   if (process.platform !== 'darwin') {
     app.quit()
   }

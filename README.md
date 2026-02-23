@@ -16,6 +16,27 @@ $ npm install
 $ npm run dev
 ```
 
+### MIDI Debug Logs (optional)
+
+Use these environment variables only when troubleshooting MIDI detection/connection:
+
+- `DEBUG_MIDI=1` enables main-process MIDI debug logs.
+- `VITE_DEBUG_MIDI=1` enables renderer-side MIDI debug logs.
+
+Windows PowerShell example:
+
+```powershell
+$env:DEBUG_MIDI="1"
+$env:VITE_DEBUG_MIDI="1"
+npm run dev
+```
+
+Git Bash example:
+
+```bash
+DEBUG_MIDI=1 VITE_DEBUG_MIDI=1 npm run dev
+```
+
 ### Build
 
 ```bash

@@ -1,8 +1,14 @@
-import { contextBridge } from 'electron'
+import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
 // Custom APIs for renderer
-const api = {}
+const api = {
+  midi: {
+    list: () => ipcRenderer.invoke('midi:native-list'),
+    connect: (targetName: string) => ipcRenderer.invoke('midi:native-connect', targetName),
+    send: (data: number[]) => ipcRenderer.send('midi:native-send', data)
+  }
+}
 
 // Use `contextBridge` APIs to expose Electron APIs to
 // renderer only if context isolation is enabled, otherwise
