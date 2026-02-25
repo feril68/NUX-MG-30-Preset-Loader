@@ -19,6 +19,7 @@ export function useMG30() {
     isConnected,
     loadConfig: controller.loadConfig.bind(controller),
     setParam: controller.setParam.bind(controller),
-    setBlockModel: controller.setBlockModel.bind(controller)
+    setBlockModel: controller.setBlockModel.bind(controller),
+    resetAllBlocksToBypass: controller.resetAllBlocksToBypass.bind(controller)
   }
 }

@@ -5,6 +5,23 @@ import { EffectBlock, MG30FullConfig, MG30BlockConfig } from './types/mg30'
 
 export class MG30Controller {
   private engine = new MG30Engine()
+  private readonly bypassSelectSequence: Array<{ cc: number; value: number }> = [
+    { cc: 1, value: 67 },
+    { cc: 2, value: 66 },
+    { cc: 3, value: 92 },
+    { cc: 4, value: 65 },
+    { cc: 5, value: 65 },
+    { cc: 6, value: 67 },
+    { cc: 7, value: 66 },
+    { cc: 8, value: 65 },
+    { cc: 9, value: 67 },
+    { cc: 10, value: 65 }
+  ]
+
+  private readonly bypassSyncSysEx: number[] = [
+    0xf0, 0x43, 0x58, 0x70, 0x0d, 0x02, 0x00, 0x05, 0x01, 0x02, 0x03, 0x09, 0x04, 0x06, 0x07, 0x08,
+    0x0a, 0x0b, 0x00, 0xf7
+  ]
 
   async init(onChange: () => void): Promise<void> {
     await this.engine.setup(onChange)
@@ -85,6 +102,15 @@ export class MG30Controller {
         )
       }
     }
+  }
+
+  async resetAllBlocksToBypass(): Promise<void> {
+    for (const { cc, value } of this.bypassSelectSequence) {
+      this.engine.sendCC(cc, value)
+      await this.wait(90)
+    }
+
+    this.engine.sendSysEx(this.bypassSyncSysEx)
   }
 
   async loadConfig(config: MG30FullConfig): Promise<void> {

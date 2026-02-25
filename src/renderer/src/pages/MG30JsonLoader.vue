@@ -1,11 +1,22 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useMG30 } from '../services/mg30/useMG30'
+import { useBypassReset } from '../services/mg30/useBypassReset'
 import { MG30FullConfig } from '../services/mg30/types/mg30'
 import MG30PageLayout from '../components/MG30PageLayout.vue'
+import MG30FooterActions from '../components/MG30FooterActions.vue'
 
 const { loadConfig } = useMG30()
 const layoutRef = ref<InstanceType<typeof MG30PageLayout> | null>(null)
+const { isResettingBypass, resetAllBypass } = useBypassReset({
+  isConnected: () => !!layoutRef.value?.isConnected,
+  isReady: () => layoutRef.value?.appState === 'ready',
+  setStatus: (message: string) => {
+    if (layoutRef.value) {
+      layoutRef.value.status = message
+    }
+  }
+})
 
 const defaultJson: MG30FullConfig = {
   wah: {},
@@ -45,11 +56,23 @@ const defaultJson: MG30FullConfig = {
 const jsonText = ref(JSON.stringify(defaultJson, null, 4))
 
 async function handleLoadToDevice(): Promise<void> {
-  layoutRef.value!.appState = 'loading'
-  layoutRef.value!.status = '📥 Sending data to MG-30...'
-
   try {
     const parsed = JSON.parse(jsonText.value) as MG30FullConfig
+
+    layoutRef.value!.appState = 'loading'
+
+    const resetDone = await resetAllBypass({
+      showStartStatus: true,
+      showSuccessStatus: false,
+      restoreConnectedStatus: false
+    })
+
+    if (!resetDone) {
+      layoutRef.value!.appState = 'ready'
+      return
+    }
+
+    layoutRef.value!.status = '📥 Sending data to MG-30...'
 
     // Artificial delay to make the loading transition smooth
     await new Promise((resolve) => setTimeout(resolve, 600))
@@ -67,6 +90,10 @@ async function handleLoadToDevice(): Promise<void> {
     layoutRef.value!.status = '❌ Error: Invalid JSON or Connection Lost'
   }
 }
+
+async function handleResetAllBypass(): Promise<void> {
+  await resetAllBypass()
+}
 </script>
 
 <template>
@@ -78,7 +105,12 @@ async function handleLoadToDevice(): Promise<void> {
     </template>
 
     <template #footer>
-      <button class="load-btn" @click="handleLoadToDevice">LOAD TO DEVICE</button>
+      <MG30FooterActions
+        load-label="LOAD TO DEVICE"
+        :disable-reset="!layoutRef?.isConnected || isResettingBypass"
+        @reset="handleResetAllBypass"
+        @load="handleLoadToDevice"
+      />
     </template>
   </MG30PageLayout>
 </template>
@@ -118,26 +150,5 @@ textarea::-webkit-scrollbar-thumb {
 
 .json-area:focus {
   border-color: #00ff9d;
-}
-
-.load-btn {
-  background: #00ff9d;
-  color: #000;
-  border: none;
-  padding: 12px 30px;
-  font-weight: bold;
-  border-radius: 4px;
-  cursor: pointer;
-  transition:
-    transform 0.1s,
-    background 0.2s;
-}
-
-.load-btn:hover {
-  background: #00cc7e;
-}
-
-.load-btn:active {
-  transform: scale(0.98);
 }
 </style>

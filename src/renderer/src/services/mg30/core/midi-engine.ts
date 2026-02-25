@@ -149,4 +149,19 @@ export class MG30Engine {
       window.api.midi.send([0xb0, cc, clampedValue])
     }
   }
+
+  sendSysEx(data: number[]): void {
+    if (this.output) {
+      try {
+        this.output.send(data)
+      } catch (error) {
+        console.error('Failed to send SysEx over Web MIDI', error)
+      }
+      return
+    }
+
+    if (this.nativeConnected && window.api?.midi) {
+      window.api.midi.send(data)
+    }
+  }
 }

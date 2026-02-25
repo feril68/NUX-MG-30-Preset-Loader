@@ -1,12 +1,23 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useMG30 } from '../services/mg30/useMG30'
+import { useBypassReset } from '../services/mg30/useBypassReset'
 import { useOllama } from '../services/ollama/useOllama'
 import MG30PageLayout from '../components/MG30PageLayout.vue'
+import MG30FooterActions from '../components/MG30FooterActions.vue'
 
 const { loadConfig } = useMG30()
 const { generateConfig } = useOllama()
 const layoutRef = ref<InstanceType<typeof MG30PageLayout> | null>(null)
+const { isResettingBypass, resetAllBypass } = useBypassReset({
+  isConnected: () => !!layoutRef.value?.isConnected,
+  isReady: () => layoutRef.value?.appState === 'ready',
+  setStatus: (message: string) => {
+    if (layoutRef.value) {
+      layoutRef.value.status = message
+    }
+  }
+})
 
 const songName = ref('')
 const artistName = ref('')
@@ -30,6 +41,17 @@ async function handleGenerateAndLoad(): Promise<void> {
       additionalInfo.value
     )
 
+    const resetDone = await resetAllBypass({
+      showStartStatus: true,
+      showSuccessStatus: false,
+      restoreConnectedStatus: false
+    })
+
+    if (!resetDone) {
+      layoutRef.value!.appState = 'ready'
+      return
+    }
+
     layoutRef.value!.status = '📥 Sending data to MG-30...'
     await loadConfig(config)
 
@@ -51,6 +73,10 @@ async function handleGenerateAndLoad(): Promise<void> {
     layoutRef.value!.appState = 'ready'
     layoutRef.value!.status = '❌ Error: Failed to generate or load configuration'
   }
+}
+
+async function handleResetAllBypass(): Promise<void> {
+  await resetAllBypass()
 }
 </script>
 
@@ -86,7 +112,12 @@ async function handleGenerateAndLoad(): Promise<void> {
     </template>
 
     <template #footer>
-      <button class="load-btn" @click="handleGenerateAndLoad">GENERATE & LOAD TO DEVICE</button>
+      <MG30FooterActions
+        load-label="GENERATE & LOAD TO DEVICE"
+        :disable-reset="!layoutRef?.isConnected || isResettingBypass"
+        @reset="handleResetAllBypass"
+        @load="handleGenerateAndLoad"
+      />
     </template>
   </MG30PageLayout>
 </template>
@@ -134,26 +165,5 @@ textarea {
 input:focus,
 textarea:focus {
   border-color: #00ff9d;
-}
-
-.load-btn {
-  background: #00ff9d;
-  color: #000;
-  border: none;
-  padding: 12px 30px;
-  font-weight: bold;
-  border-radius: 4px;
-  cursor: pointer;
-  transition:
-    transform 0.1s,
-    background 0.2s;
-}
-
-.load-btn:hover {
-  background: #00cc7e;
-}
-
-.load-btn:active {
-  transform: scale(0.98);
 }
 </style>
