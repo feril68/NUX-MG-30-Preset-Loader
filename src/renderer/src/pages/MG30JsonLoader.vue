@@ -1,14 +1,11 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue'
+import { ref } from 'vue'
 import { useMG30 } from '../services/mg30/useMG30'
 import { MG30FullConfig } from '../services/mg30/types/mg30'
+import MG30PageLayout from '../components/MG30PageLayout.vue'
 
-// 1. Use the new service logic
-const { isConnected, loadConfig } = useMG30()
-
-// 2. States matching your preferred style
-const appState = ref<'initializing' | 'ready' | 'loading'>('initializing')
-const status = ref('Searching for MG-30...')
+const { loadConfig } = useMG30()
+const layoutRef = ref<InstanceType<typeof MG30PageLayout> | null>(null)
 
 const defaultJson: MG30FullConfig = {
   wah: {},
@@ -47,24 +44,9 @@ const defaultJson: MG30FullConfig = {
 
 const jsonText = ref(JSON.stringify(defaultJson, null, 4))
 
-// 3. Sync Connection Status with appState
-watch(
-  isConnected,
-  (connected) => {
-    if (connected) {
-      appState.value = 'ready'
-      status.value = '🟢 MG-30 Connected'
-    } else {
-      appState.value = 'initializing'
-      status.value = 'Searching for MG-30...'
-    }
-  },
-  { immediate: true }
-)
-
 async function handleLoadToDevice(): Promise<void> {
-  appState.value = 'loading'
-  status.value = '📤 Sending data to MG-30...'
+  layoutRef.value!.appState = 'loading'
+  layoutRef.value!.status = '📥 Sending data to MG-30...'
 
   try {
     const parsed = JSON.parse(jsonText.value) as MG30FullConfig
@@ -74,62 +56,34 @@ async function handleLoadToDevice(): Promise<void> {
 
     await loadConfig(parsed)
 
-    status.value = '✅ Configuration loaded successfully!'
+    layoutRef.value!.status = '✅ Configuration loaded successfully!'
     // Switch back to ready after a short delay so the user sees the success message
     setTimeout(() => {
-      appState.value = 'ready'
+      layoutRef.value!.appState = 'ready'
     }, 1500)
   } catch (err) {
     console.error(err)
-    appState.value = 'ready'
-    status.value = '❌ Error: Invalid JSON or Connection Lost'
+    layoutRef.value!.appState = 'ready'
+    layoutRef.value!.status = '❌ Error: Invalid JSON or Connection Lost'
   }
 }
 </script>
 
 <template>
-  <div class="app-wrapper">
-    <div v-if="appState === 'initializing' || appState === 'loading'" class="overlay">
-      <div class="loader-content">
-        <div class="spinner"></div>
-        <p class="status-text">{{ status }}</p>
-        <p v-if="appState === 'initializing'" class="sub-text">
-          Please ensure your NUX MG-30 is connected via USB.
-        </p>
-      </div>
-    </div>
-
-    <div v-else class="container">
-      <header>
-        <h1>MG-30 : JSON LOADER</h1>
-        <div class="status-badge" :class="{ connected: isConnected }">
-          {{ status }}
-        </div>
-      </header>
-
+  <MG30PageLayout ref="layoutRef" title="MG-30 : JSON LOADER">
+    <template #content>
       <div class="editor-container">
         <textarea v-model="jsonText" spellcheck="false" class="json-area"></textarea>
       </div>
+    </template>
 
-      <footer>
-        <button class="load-btn" @click="handleLoadToDevice">LOAD TO DEVICE</button>
-      </footer>
-    </div>
-  </div>
+    <template #footer>
+      <button class="load-btn" @click="handleLoadToDevice">LOAD TO DEVICE</button>
+    </template>
+  </MG30PageLayout>
 </template>
 
-<style>
-/* Global Electron window overrides */
-html,
-body {
-  margin: 0 !important;
-  padding: 0 !important;
-  width: 900px;
-  height: 670px;
-  background-color: #121212;
-  overflow: hidden !important;
-}
-
+<style scoped>
 textarea::-webkit-scrollbar {
   width: 8px;
 }
@@ -139,94 +93,6 @@ textarea::-webkit-scrollbar-track {
 textarea::-webkit-scrollbar-thumb {
   background: #333;
   border-radius: 10px;
-}
-</style>
-
-<style scoped>
-.app-wrapper {
-  width: 885px;
-  height: 670px;
-  background-color: #121212;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.overlay {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 100%;
-  background: radial-gradient(circle, #1a1a1a 0%, #000000 100%);
-}
-
-.loader-content {
-  text-align: center;
-}
-
-.spinner {
-  width: 50px;
-  height: 50px;
-  border: 5px solid #333;
-  border-top: 5px solid #00ff9d;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-  margin: 0 auto 20px;
-}
-
-@keyframes spin {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg);
-  }
-}
-
-.container {
-  display: flex;
-  flex-direction: column;
-  height: 95%;
-  padding: 20px;
-  box-sizing: border-box;
-}
-
-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 15px;
-}
-
-h1 {
-  font-size: 1.2rem;
-  letter-spacing: 2px;
-  color: #00ff9d;
-  margin: 0;
-}
-
-.status-badge {
-  background: #1e1e1e;
-  padding: 5px 12px;
-  border-radius: 4px;
-  font-size: 0.85rem;
-  color: white;
-  border: 1px solid #333;
-}
-
-.status-badge.connected {
-  border-color: #00ff9d;
-  color: #00ff9d;
-}
-
-.status-text {
-  color: white;
-  margin: 0;
-}
-.sub-text {
-  color: #666;
-  font-size: 0.8rem;
-  margin-top: 10px;
 }
 
 .editor-container {
@@ -254,11 +120,6 @@ h1 {
   border-color: #00ff9d;
 }
 
-footer {
-  margin-top: 15px;
-  text-align: right;
-}
-
 .load-btn {
   background: #00ff9d;
   color: #000;
@@ -275,6 +136,7 @@ footer {
 .load-btn:hover {
   background: #00cc7e;
 }
+
 .load-btn:active {
   transform: scale(0.98);
 }
