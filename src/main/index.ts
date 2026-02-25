@@ -176,6 +176,40 @@ app.whenReady().then(() => {
     nativeOutput.sendMessage(data)
   })
 
+  ipcMain.handle(
+    'ollama:generate',
+    async (
+      _,
+      payload: { model: string; prompt: string; stream?: boolean; format?: 'json' }
+    ): Promise<{ response: string }> => {
+      const result = await fetch('http://127.0.0.1:11434/api/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          ...payload,
+          stream: payload.stream ?? false
+        })
+      })
+
+      if (!result.ok) {
+        const errorText = await result.text()
+        throw new Error(`Ollama API error ${result.status}: ${errorText}`)
+      }
+
+      const data = (await result.json()) as { response?: string }
+
+      if (!data.response) {
+        throw new Error('Ollama API returned empty response')
+      }
+
+      return {
+        response: data.response
+      }
+    }
+  )
+
   createWindow()
 
   app.on('activate', function () {

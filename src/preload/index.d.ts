@@ -16,6 +16,14 @@ interface PreloadApi {
     connect: (targetName: string) => Promise<NativeMidiConnectResult>
     send: (data: number[]) => void
   }
+  ollama: {
+    generate: (payload: {
+      model: string
+      prompt: string
+      stream?: boolean
+      format?: 'json'
+    }) => Promise<{ response: string }>
+  }
 }
 
 declare global {

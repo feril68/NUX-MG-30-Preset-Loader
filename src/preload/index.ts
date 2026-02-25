@@ -7,6 +7,10 @@ const api = {
     list: () => ipcRenderer.invoke('midi:native-list'),
     connect: (targetName: string) => ipcRenderer.invoke('midi:native-connect', targetName),
     send: (data: number[]) => ipcRenderer.send('midi:native-send', data)
+  },
+  ollama: {
+    generate: (payload: { model: string; prompt: string; stream?: boolean; format?: 'json' }) =>
+      ipcRenderer.invoke('ollama:generate', payload)
   }
 }
 
