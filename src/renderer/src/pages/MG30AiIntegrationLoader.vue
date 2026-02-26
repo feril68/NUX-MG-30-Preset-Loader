@@ -2,6 +2,9 @@
 import { ref } from 'vue'
 import { useMG30 } from '../services/mg30/useMG30'
 import { useBypassReset } from '../services/mg30/useBypassReset'
+import { useDeviceLoadFlow } from '../services/mg30/useDeviceLoadFlow'
+import { usePageLayoutBridge } from '../services/mg30/usePageLayoutBridge'
+import { MG30_MESSAGES } from '../services/mg30/constants'
 import { useOllama } from '../services/ollama/useOllama'
 import MG30PageLayout from '../components/MG30PageLayout.vue'
 import MG30FooterActions from '../components/MG30FooterActions.vue'
@@ -9,14 +12,18 @@ import MG30FooterActions from '../components/MG30FooterActions.vue'
 const { loadConfig } = useMG30()
 const { generateConfig } = useOllama()
 const layoutRef = ref<InstanceType<typeof MG30PageLayout> | null>(null)
+const { getLayout, setLayoutStatus, setLayoutState, setReadyWithConnectedStatus } =
+  usePageLayoutBridge(layoutRef)
 const { isResettingBypass, resetAllBypass } = useBypassReset({
-  isConnected: () => !!layoutRef.value?.isConnected,
-  isReady: () => layoutRef.value?.appState === 'ready',
-  setStatus: (message: string) => {
-    if (layoutRef.value) {
-      layoutRef.value.status = message
-    }
-  }
+  isConnected: () => !!getLayout()?.isConnected,
+  isReady: () => getLayout()?.appState === 'ready',
+  setStatus: setLayoutStatus
+})
+const { runDeviceLoadFlow } = useDeviceLoadFlow({
+  resetAllBypass,
+  setLayoutState,
+  setLayoutStatus,
+  setReadyWithConnectedStatus
 })
 
 const songName = ref('')
@@ -25,54 +32,46 @@ const instrumentName = ref('')
 const additionalInfo = ref('')
 
 async function handleGenerateAndLoad(): Promise<void> {
+  const layout = getLayout()
+  if (!layout) return
+
   if (!songName.value.trim() || !instrumentName.value.trim()) {
-    layoutRef.value!.status = '❌ Song name and instrument name are required'
+    layout.status = MG30_MESSAGES.aiValidationError
     return
   }
 
-  layoutRef.value!.appState = 'loading'
-  layoutRef.value!.status = '✨ Generating MG-30 configuration from Ollama...'
+  let generatedConfig: Awaited<ReturnType<typeof generateConfig>> | null = null
 
-  try {
-    const config = await generateConfig(
-      songName.value,
-      artistName.value,
-      instrumentName.value,
-      additionalInfo.value
-    )
-
-    const resetDone = await resetAllBypass({
-      showStartStatus: true,
-      showSuccessStatus: false,
-      restoreConnectedStatus: false
-    })
-
-    if (!resetDone) {
-      layoutRef.value!.appState = 'ready'
-      return
-    }
-
-    layoutRef.value!.status = '📥 Sending data to MG-30...'
-    await loadConfig(config)
-
-    layoutRef.value!.status = '✅ Configuration loaded successfully!'
-
-    songName.value = ''
-    artistName.value = ''
-    instrumentName.value = ''
-    additionalInfo.value = ''
-
-    setTimeout(() => {
-      layoutRef.value!.appState = 'ready'
-      if (layoutRef.value!.isConnected) {
-        layoutRef.value!.status = '🟢 MG-30 Connected'
+  await runDeviceLoadFlow({
+    prepare: async () => {
+      setLayoutStatus(MG30_MESSAGES.aiGenerateStart)
+      generatedConfig = await generateConfig(
+        songName.value,
+        artistName.value,
+        instrumentName.value,
+        additionalInfo.value
+      )
+    },
+    send: async () => {
+      if (!generatedConfig) {
+        throw new Error('Generated configuration is unavailable')
       }
-    }, 1200)
-  } catch (error) {
-    console.error(error)
-    layoutRef.value!.appState = 'ready'
-    layoutRef.value!.status = '❌ Error: Failed to generate or load configuration'
-  }
+      await loadConfig(generatedConfig)
+    },
+    sendingStatus: MG30_MESSAGES.sendingToDevice,
+    successStatus: MG30_MESSAGES.loadSuccess,
+    errorStatus: MG30_MESSAGES.aiLoadError,
+    onSuccess: () => {
+      songName.value = ''
+      artistName.value = ''
+      instrumentName.value = ''
+      additionalInfo.value = ''
+    },
+    transition: {
+      mode: 'connected-status',
+      delayMs: 1200
+    }
+  })
 }
 
 async function handleResetAllBypass(): Promise<void> {

@@ -2,19 +2,27 @@
 import { ref } from 'vue'
 import { useMG30 } from '../services/mg30/useMG30'
 import { useBypassReset } from '../services/mg30/useBypassReset'
+import { useDeviceLoadFlow } from '../services/mg30/useDeviceLoadFlow'
+import { usePageLayoutBridge } from '../services/mg30/usePageLayoutBridge'
+import { MG30_MESSAGES } from '../services/mg30/constants'
 import { MG30FullConfig } from '../services/mg30/types/mg30'
 import MG30PageLayout from '../components/MG30PageLayout.vue'
 import MG30FooterActions from '../components/MG30FooterActions.vue'
 
 const { loadConfig } = useMG30()
 const layoutRef = ref<InstanceType<typeof MG30PageLayout> | null>(null)
+const { getLayout, setLayoutStatus, setLayoutState } = usePageLayoutBridge(layoutRef)
 const { isResettingBypass, resetAllBypass } = useBypassReset({
-  isConnected: () => !!layoutRef.value?.isConnected,
-  isReady: () => layoutRef.value?.appState === 'ready',
-  setStatus: (message: string) => {
-    if (layoutRef.value) {
-      layoutRef.value.status = message
-    }
+  isConnected: () => !!getLayout()?.isConnected,
+  isReady: () => getLayout()?.appState === 'ready',
+  setStatus: setLayoutStatus
+})
+const { runDeviceLoadFlow } = useDeviceLoadFlow({
+  resetAllBypass,
+  setLayoutState,
+  setLayoutStatus,
+  setReadyWithConnectedStatus: () => {
+    setLayoutState('ready')
   }
 })
 
@@ -62,39 +70,31 @@ const defaultJson: MG30FullConfig = {
 const jsonText = ref(JSON.stringify(defaultJson, null, 4))
 
 async function handleLoadToDevice(): Promise<void> {
-  try {
-    const parsed = JSON.parse(jsonText.value) as MG30FullConfig
+  const layout = getLayout()
+  if (!layout) return
 
-    layoutRef.value!.appState = 'loading'
+  let parsedConfig: MG30FullConfig | null = null
 
-    const resetDone = await resetAllBypass({
-      showStartStatus: true,
-      showSuccessStatus: false,
-      restoreConnectedStatus: false
-    })
+  await runDeviceLoadFlow({
+    prepare: async () => {
+      parsedConfig = JSON.parse(jsonText.value) as MG30FullConfig
+    },
+    send: async () => {
+      if (!parsedConfig) {
+        throw new Error('Parsed configuration is unavailable')
+      }
 
-    if (!resetDone) {
-      layoutRef.value!.appState = 'ready'
-      return
+      await loadConfig(parsedConfig)
+    },
+    sendingStatus: MG30_MESSAGES.sendingToDevice,
+    successStatus: MG30_MESSAGES.loadSuccess,
+    errorStatus: MG30_MESSAGES.jsonLoadError,
+    beforeSendDelayMs: 600,
+    transition: {
+      mode: 'ready-only',
+      delayMs: 1500
     }
-
-    layoutRef.value!.status = '📥 Sending data to MG-30...'
-
-    // Artificial delay to make the loading transition smooth
-    await new Promise((resolve) => setTimeout(resolve, 600))
-
-    await loadConfig(parsed)
-
-    layoutRef.value!.status = '✅ Configuration loaded successfully!'
-    // Switch back to ready after a short delay so the user sees the success message
-    setTimeout(() => {
-      layoutRef.value!.appState = 'ready'
-    }, 1500)
-  } catch (err) {
-    console.error(err)
-    layoutRef.value!.appState = 'ready'
-    layoutRef.value!.status = '❌ Error: Invalid JSON or Connection Lost'
-  }
+  })
 }
 
 async function handleResetAllBypass(): Promise<void> {
