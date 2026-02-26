@@ -82,7 +82,10 @@ const jsonText = ref(JSON.stringify(defaultJson, null, 4))
 const jsonEditorWarning = computed<JsonEditorWarningState>(() => {
   const source = jsonText.value.trim()
   if (!source) {
-    return { message: null, level: null }
+    return {
+      message: 'JSON is empty. Paste or type a valid MG-30 config to enable loading.',
+      level: 'error'
+    }
   }
 
   try {
@@ -104,7 +107,12 @@ const jsonEditorWarning = computed<JsonEditorWarningState>(() => {
   return { message: null, level: null }
 })
 
+const canLoadJson = computed<boolean>(() => !jsonEditorWarning.value.message)
+const canLoadToDevice = computed<boolean>(() => !!layoutRef.value?.isConnected && canLoadJson.value)
+
 async function handleLoadToDevice(): Promise<void> {
+  if (!canLoadToDevice.value) return
+
   const layout = getLayout()
   if (!layout) return
 
@@ -204,6 +212,7 @@ function handlePaste(event: ClipboardEvent): void {
       <MG30FooterActions
         load-label="LOAD TO DEVICE"
         :disable-reset="!layoutRef?.isConnected || isResettingBypass"
+        :disable-load="!canLoadToDevice"
         @reset="handleResetAllBypass"
         @load="handleLoadToDevice"
       />
