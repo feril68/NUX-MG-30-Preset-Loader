@@ -17,8 +17,9 @@ export interface MG30BlockConfig {
   cabinetParameter?: Record<string, number>
 }
 
-export interface MG30FullConfig {
-  [key: string]: MG30BlockConfig
+export interface MG30FullConfig extends Partial<Record<EffectBlock, MG30BlockConfig>> {
+  chainOrder?: EffectBlock[]
+  reorderMode?: 'stable' | 'fast'
 }
 
 export type ConnectionStatus = 'connected' | 'disconnected' | 'searching'

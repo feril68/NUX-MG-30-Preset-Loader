@@ -46,7 +46,10 @@ function connectNativeOutput(targetName = 'MG-30'): {
   outputs: string[]
 } {
   const ports = listNativeMidiPorts()
-  const outputIndex = ports.outputs.findIndex((name) => name.includes(targetName))
+  const normalizedTarget = targetName.toLowerCase()
+  const outputIndex = ports.outputs.findIndex((name) =>
+    name.toLowerCase().includes(normalizedTarget)
+  )
 
   closeNativeOutput()
 

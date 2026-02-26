@@ -124,14 +124,22 @@ export class MG30Engine {
     if (!window.api?.midi) return
 
     try {
-      const result = await window.api.midi.connect('MG-30')
-      if (DEBUG_MIDI) {
-        console.log('Native MIDI fallback:', result)
+      const targetCandidates = ['MG-30', 'MG30', 'NUX']
+
+      for (const target of targetCandidates) {
+        const result = await window.api.midi.connect(target)
+        if (DEBUG_MIDI) {
+          console.log('Native MIDI fallback:', { target, result })
+        }
+
+        if (result.connected) {
+          this.nativeConnected = true
+          this.stopRediscovery()
+          return
+        }
       }
-      this.nativeConnected = result.connected
-      if (this.nativeConnected) {
-        this.stopRediscovery()
-      }
+
+      this.nativeConnected = false
     } catch (error) {
       console.error('Native MIDI fallback failed', error)
     }
@@ -150,18 +158,31 @@ export class MG30Engine {
     }
   }
 
-  sendSysEx(data: number[]): void {
+  async sendSysEx(data: number[]): Promise<void> {
     if (this.output) {
-      try {
-        this.output.send(data)
-      } catch (error) {
-        console.error('Failed to send SysEx over Web MIDI', error)
+      const canUseWebSysex = !!this.access?.sysexEnabled
+
+      if (canUseWebSysex) {
+        try {
+          this.output.send(data)
+          return
+        } catch (error) {
+          console.error('Failed to send SysEx over Web MIDI', error)
+        }
+      } else if (DEBUG_MIDI) {
+        console.warn('Web MIDI output connected without SysEx permission, trying native fallback')
       }
-      return
     }
+
+    await this.tryNativeConnect()
 
     if (this.nativeConnected && window.api?.midi) {
       window.api.midi.send(data)
+      return
+    }
+
+    if (DEBUG_MIDI) {
+      console.error('SysEx send failed: no available MIDI transport')
     }
   }
 }

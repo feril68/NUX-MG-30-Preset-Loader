@@ -19,6 +19,8 @@ const { isResettingBypass, resetAllBypass } = useBypassReset({
 })
 
 const defaultJson: MG30FullConfig = {
+  reorderMode: 'fast',
+  chainOrder: ['noiseGate', 'compressor', 'efx', 'amp', 'ir', 'eq', 'mod', 'delay', 'reverb'],
   wah: {},
   compressor: {
     name: 'studioComp',
