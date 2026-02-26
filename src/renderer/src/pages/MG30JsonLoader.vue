@@ -23,10 +23,13 @@ const defaultJson: MG30FullConfig = {
   chainOrder: ['noiseGate', 'compressor', 'efx', 'amp', 'ir', 'eq', 'mod', 'delay', 'reverb'],
   wah: {},
   compressor: {
+    isSwap: false,
     name: 'studioComp',
     parameter: { threshold: 42, ratio: 65, gain: 65, release: 40 }
   },
-  efx: {},
+  efx: {
+    isSwap: false
+  },
   amp: {
     name: 'starlift',
     parameter: { bass: 50, middle: 65, mFreq: 65, treble: 72, contour: 35, volume: 75, level: 65 }
@@ -40,6 +43,7 @@ const defaultJson: MG30FullConfig = {
     parameter: { sens: 30, decay: 40 }
   },
   mod: {
+    isSwap: false,
     name: 'stChorus',
     parameter: { inten: 20, width: 60, rate: 30, subD: 40 }
   },

@@ -8,6 +8,7 @@ export interface ParameterMap {
 
 export interface MG30BlockConfig {
   name?: string
+  isSwap?: boolean
   parameter?: Record<string, number>
   cabinetName?: string
   micConfig?: {
