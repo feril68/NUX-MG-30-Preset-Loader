@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, computed, Ref } from 'vue'
 import { useMG30 } from '../services/mg30/useMG30'
+import { MG30_MESSAGES } from '../services/mg30/constants'
 
 interface Props {
   title: string
@@ -11,7 +12,7 @@ defineProps<Props>()
 const { isConnected } = useMG30()
 
 const appState: Ref<'initializing' | 'ready' | 'loading'> = ref('initializing')
-const status: Ref<string> = ref('Searching for MG-30...')
+const status: Ref<string> = ref(MG30_MESSAGES.searching)
 
 const isInitializingOrLoading = computed(
   () => appState.value === 'initializing' || appState.value === 'loading'
@@ -22,12 +23,12 @@ watch(
   (connected) => {
     if (connected) {
       appState.value = 'ready'
-      status.value = '🟢 MG-30 Connected'
+      status.value = MG30_MESSAGES.connected
       return
     }
 
     appState.value = 'initializing'
-    status.value = 'Searching for MG-30...'
+    status.value = MG30_MESSAGES.searching
   },
   { immediate: true }
 )

@@ -1,5 +1,6 @@
 import { ref, type Ref } from 'vue'
 import { useMG30 } from './useMG30'
+import { MG30_MESSAGES } from './constants'
 
 interface ResetStatusBridge {
   isConnected: () => boolean
@@ -36,7 +37,7 @@ export function useBypassReset(statusBridge: ResetStatusBridge): UseBypassResetR
     isResettingBypass.value = true
 
     if (showStartStatus) {
-      statusBridge.setStatus('⏻ Resetting all blocks to bypass...')
+      statusBridge.setStatus(MG30_MESSAGES.resettingBypass)
     }
 
     try {
@@ -49,7 +50,7 @@ export function useBypassReset(statusBridge: ResetStatusBridge): UseBypassResetR
       if (showSuccessStatus && restoreConnectedStatus) {
         setTimeout(() => {
           if (statusBridge.isConnected() && statusBridge.isReady()) {
-            statusBridge.setStatus('🟢 MG-30 Connected')
+            statusBridge.setStatus(MG30_MESSAGES.connected)
           }
         }, 1200)
       }
@@ -57,7 +58,7 @@ export function useBypassReset(statusBridge: ResetStatusBridge): UseBypassResetR
       return true
     } catch (error) {
       console.error(error)
-      statusBridge.setStatus('❌ Failed to reset blocks to bypass')
+      statusBridge.setStatus(MG30_MESSAGES.resetBypassFailed)
       return false
     } finally {
       isResettingBypass.value = false

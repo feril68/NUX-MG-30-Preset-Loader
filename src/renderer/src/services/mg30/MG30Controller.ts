@@ -6,10 +6,26 @@ import { EffectBlock, MG30FullConfig, MG30BlockConfig } from './types/mg30'
 type SwappableBlock = 'compressor' | 'efx' | 'mod'
 type SwapTargetMap = Record<SwappableBlock, EffectBlock>
 type SwapRoute = `${SwappableBlock}->${EffectBlock}`
+type IrCabinetConfig = { parameter?: string[] }
+type ReorderMode = 'stable' | 'fast'
+type SwapActivationConfig = {
+  selectValue: number
+  knobValues: number[]
+  syncTail: number
+  syncRepeat: number
+}
+type StandardModelSourceBlock = Exclude<EffectBlock, 'ir'>
 
 export class MG30Controller {
   private engine = new MG30Engine()
   private readonly stableReorderMode = 'stable'
+  private readonly swappableBlocks: SwappableBlock[] = ['compressor', 'efx', 'mod']
+  private readonly blockApplyDelayMs = 200
+  private readonly swapPostActivationDelayMs = 120
+  private readonly swapActivationSelectDelayMs = 80
+  private readonly swapActivationKnobDelayMs = 80
+  private readonly swapActivationSyncRepeatDelayMs = 60
+  private readonly bypassStepDelayMs = 90
   private readonly chainApplyDelayMs = 450
   private readonly chainStepDelayMs = 220
   private readonly chainVariantDelayMs = 90
@@ -76,25 +92,10 @@ export class MG30Controller {
     efx: 'mod',
     mod: 'efx'
   }
-  private readonly swapSelectValueByBlock: Record<SwappableBlock, number> = {
-    compressor: 68,
-    efx: 85,
-    mod: 80
-  }
-  private readonly swapKnobValuesByBlock: Record<SwappableBlock, number[]> = {
-    compressor: [90, 50, 0, 0],
-    efx: [57, 50, 20, 6],
-    mod: [90, 50, 0, 0]
-  }
-  private readonly swapSyncTailByBlock: Record<SwappableBlock, number> = {
-    compressor: 0x08,
-    efx: 0x10,
-    mod: 0x20
-  }
-  private readonly swapSyncRepeatByBlock: Record<SwappableBlock, number> = {
-    compressor: 1,
-    efx: 2,
-    mod: 6
+  private readonly swapActivationByBlock: Record<SwappableBlock, SwapActivationConfig> = {
+    compressor: { selectValue: 68, knobValues: [90, 50, 0, 0], syncTail: 0x08, syncRepeat: 1 },
+    efx: { selectValue: 85, knobValues: [57, 50, 20, 6], syncTail: 0x10, syncRepeat: 2 },
+    mod: { selectValue: 80, knobValues: [90, 50, 0, 0], syncTail: 0x20, syncRepeat: 6 }
   }
   private readonly swapModelSelectOffsetByRoute: Partial<Record<SwapRoute, number>> = {
     'compressor->efx': 3,
@@ -119,18 +120,10 @@ export class MG30Controller {
     modelName: string,
     modelSourceBlock: EffectBlock = block
   ): void {
-    const blockData = MODEL_BASE_DICT[modelSourceBlock]
-    if (!blockData) return
+    if (!MODEL_BASE_DICT[modelSourceBlock]) return
 
     const cc = CC_MAPPING_DICT.select[block]
-    let models: string[] = []
-
-    if (modelSourceBlock === 'ir') {
-      const irData = MODEL_BASE_DICT.ir.irCabinet
-      models = Object.keys(irData)
-    } else {
-      models = Object.keys(blockData)
-    }
+    const models = this.getModelList(modelSourceBlock)
 
     const index = models.indexOf(modelName)
     if (cc !== undefined && index !== -1) {
@@ -147,39 +140,9 @@ export class MG30Controller {
     rawValue: number | string,
     modelSourceBlock: EffectBlock = block
   ): void {
-    let scaledValue: number
-
-    if (typeof rawValue === 'number') {
-      scaledValue = scaleToMidi(param, rawValue)
-    } else {
-      const irLookup = MODEL_BASE_DICT.ir as Record<string, any>
-      const listKey = `ir${param.charAt(0).toUpperCase() + param.slice(1)}`
-      const list = irLookup[listKey]
-      scaledValue = list ? Object.keys(list).indexOf(rawValue) : 0
-    }
-
-    const modelKey = model.replace(/_([a-z])/g, (g) => g[1].toUpperCase())
-    let knobIdx: number = -1
-
-    if (block === 'ir') {
-      if (param === 'micType') {
-        knobIdx = 1
-      } else if (param === 'micPosition') {
-        knobIdx = 2
-      } else {
-        const cabinet = (MODEL_BASE_DICT.ir.irCabinet as Record<string, any>)[modelKey]
-        const paramsList = cabinet?.parameter as string[] | undefined
-        if (paramsList) {
-          const pIdx = paramsList.indexOf(param)
-          if (pIdx !== -1) knobIdx = pIdx + 3
-        }
-      }
-    } else {
-      const paramsList = (MODEL_BASE_DICT[modelSourceBlock] as Record<string, string[]>)[modelKey]
-      if (paramsList) {
-        knobIdx = paramsList.indexOf(param) + 1
-      }
-    }
+    const scaledValue = this.resolveScaledValue(param, rawValue)
+    const modelKey = this.normalizeModelKey(model)
+    const knobIdx = this.resolveKnobIndex(block, modelSourceBlock, modelKey, param)
 
     if (knobIdx !== -1) {
       const blockKnobs = CC_MAPPING_DICT.knob[block] as Record<number, number>
@@ -197,10 +160,94 @@ export class MG30Controller {
   async resetAllBlocksToBypass(): Promise<void> {
     for (const { cc, value } of this.bypassSelectSequence) {
       this.engine.sendCC(cc, value)
-      await this.wait(90)
+      await this.wait(this.bypassStepDelayMs)
     }
 
     await this.engine.sendSysEx(this.bypassSyncSysEx)
+  }
+
+  private getModelList(modelSourceBlock: EffectBlock): string[] {
+    if (modelSourceBlock === 'ir') {
+      return Object.keys(MODEL_BASE_DICT.ir.irCabinet)
+    }
+
+    return Object.keys(MODEL_BASE_DICT[modelSourceBlock])
+  }
+
+  private normalizeModelKey(model: string): string {
+    return model.replace(/_([a-z])/g, (group) => group[1].toUpperCase())
+  }
+
+  private resolveScaledValue(param: string, rawValue: number | string): number {
+    if (typeof rawValue === 'number') {
+      return scaleToMidi(param, rawValue)
+    }
+
+    return this.resolveIrOptionValue(param, rawValue)
+  }
+
+  private resolveIrOptionValue(param: string, rawValue: string): number {
+    if (param === 'micType') {
+      return Object.keys(MODEL_BASE_DICT.ir.irMicType).indexOf(rawValue)
+    }
+
+    if (param === 'micPosition') {
+      return Object.keys(MODEL_BASE_DICT.ir.irMicPosition).indexOf(rawValue)
+    }
+
+    return 0
+  }
+
+  private resolveKnobIndex(
+    block: EffectBlock,
+    modelSourceBlock: EffectBlock,
+    modelKey: string,
+    param: string
+  ): number {
+    if (block === 'ir') {
+      return this.resolveIrKnobIndex(modelKey, param)
+    }
+
+    if (modelSourceBlock === 'ir') {
+      return -1
+    }
+
+    return this.resolveStandardKnobIndex(modelSourceBlock, modelKey, param)
+  }
+
+  private resolveIrKnobIndex(modelKey: string, param: string): number {
+    if (param === 'micType') {
+      return 1
+    }
+
+    if (param === 'micPosition') {
+      return 2
+    }
+
+    const cabinet = (MODEL_BASE_DICT.ir.irCabinet as Record<string, IrCabinetConfig | undefined>)[
+      modelKey
+    ]
+    const paramsList = cabinet?.parameter
+    if (!paramsList) {
+      return -1
+    }
+
+    const pIdx = paramsList.indexOf(param)
+    return pIdx === -1 ? -1 : pIdx + 3
+  }
+
+  private resolveStandardKnobIndex(
+    modelSourceBlock: StandardModelSourceBlock,
+    modelKey: string,
+    param: string
+  ): number {
+    const paramsList = (MODEL_BASE_DICT[modelSourceBlock] as Record<string, string[]>)[modelKey]
+    if (!paramsList) {
+      return -1
+    }
+
+    const paramIndex = paramsList.indexOf(param)
+    return paramIndex === -1 ? -1 : paramIndex + 1
   }
 
   private isKnownBlock(key: string): key is EffectBlock {
@@ -208,7 +255,7 @@ export class MG30Controller {
   }
 
   private isSwappableBlock(block: EffectBlock): block is SwappableBlock {
-    return block === 'compressor' || block === 'efx' || block === 'mod'
+    return this.swappableBlocks.includes(block as SwappableBlock)
   }
 
   private isSwapEnabled(data: MG30BlockConfig): boolean {
@@ -269,30 +316,27 @@ export class MG30Controller {
   }
 
   private async applySwapActivation(block: SwappableBlock): Promise<void> {
+    const activation = this.swapActivationByBlock[block]
     const selectCc = CC_MAPPING_DICT.select[block]
-    const selectValue = this.swapSelectValueByBlock[block]
-    const knobValues = this.swapKnobValuesByBlock[block]
     const knobMap = CC_MAPPING_DICT.knob[block] as Record<number, number>
 
-    this.engine.sendCC(selectCc, selectValue)
-    await this.wait(80)
+    this.engine.sendCC(selectCc, activation.selectValue)
+    await this.wait(this.swapActivationSelectDelayMs)
 
-    knobValues.forEach((value, index) => {
+    activation.knobValues.forEach((value, index) => {
       const cc = knobMap[index + 1]
       if (cc !== undefined) {
         this.engine.sendCC(cc, value)
       }
     })
 
-    await this.wait(80)
+    await this.wait(this.swapActivationKnobDelayMs)
 
-    const syncTail = this.swapSyncTailByBlock[block]
-    const syncRepeat = this.swapSyncRepeatByBlock[block]
-    const syncBytes = this.buildSwapSyncSysEx(syncTail)
+    const syncBytes = this.buildSwapSyncSysEx(activation.syncTail)
 
-    for (let pass = 0; pass < syncRepeat; pass += 1) {
+    for (let pass = 0; pass < activation.syncRepeat; pass += 1) {
       await this.engine.sendSysEx(syncBytes)
-      await this.wait(60)
+      await this.wait(this.swapActivationSyncRepeatDelayMs)
     }
 
     console.log(`MIDI -> Activated swap for ${block}`)
@@ -374,7 +418,7 @@ export class MG30Controller {
     return sequence
   }
 
-  private resolveReorderMode(config: MG30FullConfig): 'stable' | 'fast' {
+  private resolveReorderMode(config: MG30FullConfig): ReorderMode {
     if (config.reorderMode === 'fast') {
       return 'fast'
     }
@@ -433,8 +477,7 @@ export class MG30Controller {
   }
 
   private hasSwapConfigured(config: MG30FullConfig): boolean {
-    const swappableBlocks: SwappableBlock[] = ['compressor', 'efx', 'mod']
-    return swappableBlocks.some((block) => {
+    return this.swappableBlocks.some((block) => {
       const data = config[block]
       return !!data && this.isSwapEnabled(data)
     })
@@ -453,9 +496,8 @@ export class MG30Controller {
     config: MG30FullConfig
   ): Partial<Record<EffectBlock, SwappableBlock>> {
     const occupancy: Partial<Record<EffectBlock, SwappableBlock>> = {}
-    const swappableBlocks: SwappableBlock[] = ['compressor', 'efx', 'mod']
 
-    for (const source of swappableBlocks) {
+    for (const source of this.swappableBlocks) {
       const data = config[source]
       if (!data || !this.isSwapEnabled(data)) continue
 
@@ -527,10 +569,10 @@ export class MG30Controller {
       if (blockKey === 'ir') {
         await this.handleIR(data)
       } else {
-        await this.handleStandard(blockKey as EffectBlock, data)
+        await this.handleStandard(blockKey, data)
       }
 
-      await this.wait(200)
+      await this.wait(this.blockApplyDelayMs)
     }
 
     if (!hasSwapBlocks) {
@@ -540,21 +582,22 @@ export class MG30Controller {
 
   private async handleStandard(block: EffectBlock, data: MG30BlockConfig): Promise<void> {
     if (!data.name) return
+    const modelName = data.name
 
     const modelSourceBlock = this.resolveModelSourceBlock(block, data)
 
     if (this.isSwappableBlock(block) && this.isSwapEnabled(data)) {
       await this.applySwapActivation(block)
-      await this.wait(120)
+      await this.wait(this.swapPostActivationDelayMs)
     }
 
-    this.setBlockModel(block, data.name, modelSourceBlock)
-    await this.wait(200)
+    this.setBlockModel(block, modelName, modelSourceBlock)
+    await this.wait(this.blockApplyDelayMs)
 
     if (data.parameter) {
       for (const [p, v] of Object.entries(data.parameter)) {
-        this.setParam(block, data.name!, p, v, modelSourceBlock)
-        await this.wait(200)
+        this.setParam(block, modelName, p, v, modelSourceBlock)
+        await this.wait(this.blockApplyDelayMs)
       }
     }
   }
@@ -564,23 +607,23 @@ export class MG30Controller {
     if (!name) return
 
     this.setBlockModel('ir', name)
-    await this.wait(200)
+    await this.wait(this.blockApplyDelayMs)
 
     if (data.micConfig) {
       if (data.micConfig.micType) {
         this.setParam('ir', name, 'micType', data.micConfig.micType)
-        await this.wait(200)
+        await this.wait(this.blockApplyDelayMs)
       }
       if (data.micConfig.micPosition) {
         this.setParam('ir', name, 'micPosition', data.micConfig.micPosition)
-        await this.wait(200)
+        await this.wait(this.blockApplyDelayMs)
       }
     }
 
     if (data.cabinetParameter) {
       for (const [p, v] of Object.entries(data.cabinetParameter)) {
         this.setParam('ir', name, p, v)
-        await this.wait(200)
+        await this.wait(this.blockApplyDelayMs)
       }
     }
   }
