@@ -1,11 +1,17 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useMG30 } from '../services/mg30/useMG30'
 import { useBypassReset } from '../services/mg30/useBypassReset'
 import { useDeviceLoadFlow } from '../services/mg30/useDeviceLoadFlow'
 import { usePageLayoutBridge } from '../services/mg30/usePageLayoutBridge'
 import { MG30_MESSAGES } from '../services/mg30/constants'
 import { MG30FullConfig } from '../services/mg30/types/mg30'
+import { formatPastedJsonIf } from '../services/json/paste'
+import {
+  formatValidationIssuesForDisplay,
+  getMG30ValidationIssues,
+  isMG30FullConfigLike
+} from '../services/mg30/mg30JsonValidation'
 import MG30PageLayout from '../components/MG30PageLayout.vue'
 import MG30FooterActions from '../components/MG30FooterActions.vue'
 
@@ -67,7 +73,36 @@ const defaultJson: MG30FullConfig = {
   }
 }
 
+type JsonEditorWarningState = {
+  message: string | null
+  level: 'error' | 'warning' | null
+}
+
 const jsonText = ref(JSON.stringify(defaultJson, null, 4))
+const jsonEditorWarning = computed<JsonEditorWarningState>(() => {
+  const source = jsonText.value.trim()
+  if (!source) {
+    return { message: null, level: null }
+  }
+
+  try {
+    const parsed = JSON.parse(source) as unknown
+    const issues = getMG30ValidationIssues(parsed)
+    if (issues.length > 0) {
+      return {
+        message: `JSON is valid, but MG-30 config has issues: ${formatValidationIssuesForDisplay(issues)}.`,
+        level: 'warning'
+      }
+    }
+  } catch {
+    return {
+      message: 'Invalid JSON format. Continue editing until this warning disappears.',
+      level: 'error'
+    }
+  }
+
+  return { message: null, level: null }
+})
 
 async function handleLoadToDevice(): Promise<void> {
   const layout = getLayout()
@@ -100,13 +135,68 @@ async function handleLoadToDevice(): Promise<void> {
 async function handleResetAllBypass(): Promise<void> {
   await resetAllBypass()
 }
+
+function tryFormatEditorJson(): void {
+  const formatted = formatPastedJsonIf(jsonText.value, isMG30FullConfigLike)
+  if (!formatted) return
+
+  jsonText.value = formatted
+}
+
+function handleEditorKeydown(event: KeyboardEvent): void {
+  const isFormatShortcut =
+    (event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'f'
+  if (!isFormatShortcut) return
+
+  event.preventDefault()
+  tryFormatEditorJson()
+}
+
+function handlePaste(event: ClipboardEvent): void {
+  const pastedText = event.clipboardData?.getData('text')
+  if (!pastedText) {
+    setTimeout(tryFormatEditorJson, 0)
+    return
+  }
+
+  const formatted = formatPastedJsonIf(pastedText, isMG30FullConfigLike)
+  if (formatted) {
+    jsonText.value = formatted
+    event.preventDefault()
+    return
+  }
+
+  setTimeout(tryFormatEditorJson, 0)
+}
 </script>
 
 <template>
   <MG30PageLayout ref="layoutRef" title="MG-30 : JSON LOADER">
     <template #content>
       <div class="editor-container">
-        <textarea v-model="jsonText" spellcheck="false" class="json-area"></textarea>
+        <textarea
+          v-model="jsonText"
+          spellcheck="false"
+          class="json-area"
+          @paste="handlePaste"
+          @blur="tryFormatEditorJson"
+          @keydown="handleEditorKeydown"
+        ></textarea>
+        <div class="editor-meta">
+          <div
+            class="editor-warning"
+            :class="{
+              'is-visible': !!jsonEditorWarning.message,
+              'is-error': jsonEditorWarning.level === 'error',
+              'is-warning': jsonEditorWarning.level === 'warning'
+            }"
+          >
+            <span v-if="jsonEditorWarning.level === 'error'">⛔ </span>
+            <span v-else-if="jsonEditorWarning.level === 'warning'">⚠ </span>
+            {{ jsonEditorWarning.message || '\u00A0' }}
+          </div>
+          <div class="editor-hint">Format: Ctrl/Cmd + Shift + F</div>
+        </div>
       </div>
     </template>
 
@@ -134,6 +224,8 @@ textarea::-webkit-scrollbar-thumb {
 }
 
 .editor-container {
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
   margin-bottom: 10px;
@@ -141,7 +233,8 @@ textarea::-webkit-scrollbar-thumb {
 
 .json-area {
   width: 100%;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   background: #1e1e1e;
   color: #d4d4d4;
   border: 1px solid #333;
@@ -156,5 +249,41 @@ textarea::-webkit-scrollbar-thumb {
 
 .json-area:focus {
   border-color: #00ff9d;
+}
+
+.editor-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 6px;
+  min-height: 16px;
+}
+
+.editor-hint {
+  font-size: 11px;
+  color: #8f8f8f;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.editor-warning {
+  font-size: 11px;
+  color: #8f8f8f;
+  text-align: left;
+  visibility: hidden;
+}
+
+.editor-warning.is-visible {
+  visibility: visible;
+}
+
+.editor-warning.is-error {
+  color: #d4d4d4;
+  font-weight: 600;
+}
+
+.editor-warning.is-warning {
+  color: #ffe600;
 }
 </style>
