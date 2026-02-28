@@ -1,5 +1,5 @@
-appId: com.electron.app
-productName: mg30-controller-electron
+appId: com.ferilbp.nuxmg30loader
+productName: NUX MG-30 Preset Loader
 directories:
   buildResources: build
 files:
@@ -12,12 +12,15 @@ files:
 asarUnpack:
   - resources/**
 win:
-  executableName: mg30-controller-electron
+  executableName: NUX MG-30 Preset Loader
+  icon: music-instrument-play-guitar-pick.ico
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
+  oneClick: false
+  allowToChangeInstallationDirectory: true
 mac:
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
