@@ -24,6 +24,16 @@ interface PreloadApi {
       format?: 'json'
     }) => Promise<{ response: string }>
   }
+  gemini: {
+    generate: (payload: {
+      apiKey: string
+      model: string
+      prompt: string
+    }) => Promise<{ response: string }>
+  }
+  ai: {
+    getChatTemplate: () => Promise<string>
+  }
 }
 
 declare global {

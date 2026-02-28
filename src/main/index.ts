@@ -1,5 +1,6 @@
 import { app, shell, BrowserWindow, ipcMain, session } from 'electron'
 import { join } from 'path'
+import { readFile } from 'node:fs/promises'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import * as Midi from '@julusian/midi'
 
@@ -10,6 +11,11 @@ if (process.platform === 'win32') {
 }
 
 const icon = join(__dirname, '../../resources/icon.png')
+const chatTemplatePathCandidates = [
+  join(__dirname, '../../resources/chat-template.txt'),
+  join(process.resourcesPath, 'chat-template.txt'),
+  join(process.resourcesPath, 'resources/chat-template.txt')
+]
 
 let nativeOutput: InstanceType<typeof Midi.Output> | null = null
 
@@ -105,6 +111,21 @@ function createWindow(): void {
   }
 }
 
+async function loadChatTemplateText(): Promise<string> {
+  for (const candidate of chatTemplatePathCandidates) {
+    try {
+      const content = await readFile(candidate, 'utf-8')
+      if (content.trim()) {
+        return content
+      }
+    } catch {
+      continue
+    }
+  }
+
+  throw new Error('Unable to load resources/chat-template.txt')
+}
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
@@ -179,6 +200,10 @@ app.whenReady().then(() => {
     nativeOutput.sendMessage(data)
   })
 
+  ipcMain.handle('ai:get-chat-template', async (): Promise<string> => {
+    return await loadChatTemplateText()
+  })
+
   ipcMain.handle(
     'ollama:generate',
     async (
@@ -209,6 +234,64 @@ app.whenReady().then(() => {
 
       return {
         response: data.response
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'gemini:generate',
+    async (
+      _,
+      payload: { apiKey: string; model: string; prompt: string }
+    ): Promise<{ response: string }> => {
+      const apiKey = payload.apiKey.trim()
+      const model = payload.model.trim()
+
+      if (!apiKey) {
+        throw new Error('Gemini API key is required')
+      }
+
+      if (!model) {
+        throw new Error('Gemini model is required')
+      }
+
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
+
+      const result = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: payload.prompt }]
+            }
+          ],
+          generationConfig: {
+            temperature: 0.35,
+            responseMimeType: 'application/json'
+          }
+        })
+      })
+
+      if (!result.ok) {
+        const errorText = await result.text()
+        throw new Error(`Gemini API error ${result.status}: ${errorText}`)
+      }
+
+      const data = (await result.json()) as {
+        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
+      }
+
+      const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
+      if (!responseText) {
+        throw new Error('Gemini API returned empty response')
+      }
+
+      return {
+        response: responseText
       }
     }
   )

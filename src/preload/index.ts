@@ -11,6 +11,13 @@ const api = {
   ollama: {
     generate: (payload: { model: string; prompt: string; stream?: boolean; format?: 'json' }) =>
       ipcRenderer.invoke('ollama:generate', payload)
+  },
+  gemini: {
+    generate: (payload: { apiKey: string; model: string; prompt: string }) =>
+      ipcRenderer.invoke('gemini:generate', payload)
+  },
+  ai: {
+    getChatTemplate: () => ipcRenderer.invoke('ai:get-chat-template')
   }
 }
 

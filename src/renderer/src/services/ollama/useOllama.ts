@@ -1,8 +1,20 @@
 import { MG30FullConfig } from '../mg30/types/mg30'
+import { AISettings } from '../ai/storage'
+import { MODEL_BASE_DICT, KNOB_SCALE } from '../mg30/constants'
 
-const OLLAMA_MODEL = 'mg30-ai'
+type GeneratedAiPayload = {
+  config: MG30FullConfig
+  additionalInfo: string
+}
 
-function buildPrompt(
+type ParsedAiJson = Record<string, unknown>
+let chatTemplateCache: string | null = null
+
+function isRecord(value: unknown): value is ParsedAiJson {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function buildFallbackPrompt(
   songName: string,
   artistName: string,
   instrumentName: string,
@@ -14,13 +26,117 @@ function buildPrompt(
     : 'Additional info: (not provided)'
 
   return [
-    'Create one NUX MG-30 preset JSON for this song profile:',
+    'Create one NUX MG-30 preset JSON for this song profile.',
+    'Return ONLY valid JSON with this shape:',
+    '{',
+    '  "additionalInfo": "Markdown explanation",',
+    '  "chainOrder": [...],',
+    '  "wah": {...},',
+    '  "compressor": {...},',
+    '  "efx": {...},',
+    '  "amp": {...},',
+    '  "eq": {...},',
+    '  "noiseGate": {...},',
+    '  "mod": {...},',
+    '  "delay": {...},',
+    '  "reverb": {...},',
+    '  "ir": {...}',
+    '}',
+    'Do not wrap the JSON in markdown code fences.',
+    '',
     `Song: ${songName.trim()}`,
     artistLine,
     `Instrument: ${instrumentName.trim()}`,
     additionalLine,
     ''
   ].join('\n')
+}
+
+function fillChatTemplate(
+  template: string,
+  songName: string,
+  artistName: string,
+  instrumentName: string,
+  additionalInfo: string
+): string {
+  const resolvedSong = songName.trim() || '-'
+  const resolvedArtist = artistName.trim() || '-'
+  const resolvedInstrument = instrumentName.trim() || '-'
+  const resolvedAdditional = additionalInfo.trim() || '-'
+
+  return template
+    .split('{song name}')
+    .join(resolvedSong)
+    .split('{artist name}')
+    .join(resolvedArtist)
+    .split('{instrument name}')
+    .join(resolvedInstrument)
+    .split('{additional information}')
+    .join(resolvedAdditional)
+}
+
+function injectConstantsIntoTemplate(template: string): string {
+  const modelBaseDictText = JSON.stringify(MODEL_BASE_DICT, null, 2)
+  const knobScaleText = JSON.stringify(KNOB_SCALE, null, 2)
+
+  if (template.includes('{MODEL_BASE_DICT}') || template.includes('{KNOB_SCALE}')) {
+    return template
+      .split('{MODEL_BASE_DICT}')
+      .join(modelBaseDictText)
+      .split('{KNOB_SCALE}')
+      .join(knobScaleText)
+  }
+
+  const modelHeader = '- ONLY use models block found in this dict: MODEL_BASE_DICT = '
+  const knobHeader = '- ONLY use values within the ranges in: KNOB_SCALE = '
+  const nameRuleLine =
+    '- `name` fields MUST be exact MODEL_BASE_DICT keys (case-sensitive), never display labels.'
+
+  let normalized = template
+
+  const modelSectionRegex =
+    /- ONLY use models block found in this dict: MODEL_BASE_DICT =[\s\S]*?- ONLY use values within the ranges in: KNOB_SCALE =/m
+
+  if (modelSectionRegex.test(normalized)) {
+    normalized = normalized.replace(
+      modelSectionRegex,
+      `${modelHeader}${modelBaseDictText}\n${knobHeader}`
+    )
+  }
+
+  const knobSectionRegex =
+    /- ONLY use values within the ranges in: KNOB_SCALE =[\s\S]*?- `name` fields MUST be exact MODEL_BASE_DICT keys \(case-sensitive\), never display labels\./m
+
+  if (knobSectionRegex.test(normalized)) {
+    normalized = normalized.replace(
+      knobSectionRegex,
+      `${knobHeader}${knobScaleText}\n${nameRuleLine}`
+    )
+  }
+
+  return normalized
+}
+
+async function buildPrompt(
+  songName: string,
+  artistName: string,
+  instrumentName: string,
+  additionalInfo: string
+): Promise<string> {
+  if (!chatTemplateCache) {
+    try {
+      const loadedTemplate = await window.api.ai.getChatTemplate()
+      chatTemplateCache = injectConstantsIntoTemplate(loadedTemplate)
+    } catch {
+      chatTemplateCache = null
+    }
+  }
+
+  if (!chatTemplateCache) {
+    return buildFallbackPrompt(songName, artistName, instrumentName, additionalInfo)
+  }
+
+  return fillChatTemplate(chatTemplateCache, songName, artistName, instrumentName, additionalInfo)
 }
 
 function extractJsonObject(raw: string): string {
@@ -55,35 +171,72 @@ function extractJsonObject(raw: string): string {
   throw new Error('Invalid JSON object in Ollama response')
 }
 
+function normalizeGeneratedPayload(parsed: unknown): GeneratedAiPayload {
+  if (!isRecord(parsed)) {
+    throw new Error('Generated response is not a JSON object')
+  }
+
+  let additionalInfo = ''
+
+  if (typeof parsed.additionalInfo === 'string') {
+    additionalInfo = parsed.additionalInfo
+  }
+
+  const sourceConfig = isRecord(parsed.config) ? parsed.config : parsed
+  const { additionalInfo: nestedAdditionalInfo, ...configWithoutAdditionalInfo } = sourceConfig
+
+  if (!additionalInfo && typeof nestedAdditionalInfo === 'string') {
+    additionalInfo = nestedAdditionalInfo
+  }
+
+  return {
+    config: configWithoutAdditionalInfo as MG30FullConfig,
+    additionalInfo
+  }
+}
+
 export function useOllama(): {
   generateConfig: (
     songName: string,
     artistName: string,
     instrumentName: string,
-    additionalInfo: string
-  ) => Promise<MG30FullConfig>
+    additionalInfo: string,
+    settings: AISettings
+  ) => Promise<GeneratedAiPayload>
 } {
   async function generateConfig(
     songName: string,
     artistName: string,
     instrumentName: string,
-    additionalInfo: string
-  ): Promise<MG30FullConfig> {
-    const prompt = buildPrompt(songName, artistName, instrumentName, additionalInfo)
-    console.log('Ollama prompt:', prompt)
+    additionalInfo: string,
+    settings: AISettings
+  ): Promise<GeneratedAiPayload> {
+    const prompt = await buildPrompt(songName, artistName, instrumentName, additionalInfo)
+    const provider = settings.provider
 
-    const result = await window.api.ollama.generate({
-      model: OLLAMA_MODEL,
-      prompt,
-      stream: false,
-      format: 'json'
-    })
+    if (provider === 'gemini') {
+      console.log('[AI][Gemini] Prompt sent to model:')
+      console.log(prompt)
+    }
+
+    const result =
+      provider === 'gemini'
+        ? await window.api.gemini.generate({
+            apiKey: settings.geminiApiKey,
+            model: settings.geminiModel,
+            prompt
+          })
+        : await window.api.ollama.generate({
+            model: settings.ollamaModel,
+            prompt,
+            stream: false,
+            format: 'json'
+          })
 
     const jsonStr = extractJsonObject(result.response)
-    console.log('Ollama raw response:', result.response)
-    const config = JSON.parse(jsonStr) as MG30FullConfig
+    const parsed = JSON.parse(jsonStr) as unknown
 
-    return config
+    return normalizeGeneratedPayload(parsed)
   }
 
   return {
