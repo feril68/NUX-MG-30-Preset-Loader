@@ -1,6 +1,27 @@
-# nux-mg30-preset-loader
+# NUX MG-30 Preset Loader
 
-Electron desktop app (Vue 3 + TypeScript) for loading and managing NUX MG-30 presets.
+An Electron-based desktop application (Vue 3 + TypeScript) designed for management of NUX MG-30 Gen 2 presets.
+
+### Core Features
+
+- JSON Preset Loader: Easily import and load local JSON configurations directly to your MG-30 hardware.
+
+- AI-Powered Tone Designer:
+  - Local AI (Ollama): Generate custom presets using local models for privacy and offline use.
+
+  - Cloud AI (Gemini API): Leverage high-performance models to describe a specific tone and receive a corresponding JSON configuration instantly.
+
+  - Direct Hardware Sync: Automatically convert AI-generated descriptions into hardware-compatible signal chains and parameter settings.
+
+## Limitations
+
+- Compatibility: Exclusive to Nux MG-30 Gen 2 Firmware.
+- Environment: Verified for Windows 11 only; other operating systems are currently untested.
+
+## Known Issues
+
+- Connectivity: The application may occasionally fail to detect the USB MIDI interface. (Workaround: Try reconnecting the device or restarting the app.)
+- Reorder Mode Stability: When reorderMode is set to fast, the signal chain order may occasionally fail to update correctly. (Workaround: Use `reorderMode = stable`. While this is slower, it ensures the chain order is accurately processed and applied.)
 
 ## Requirements
 
