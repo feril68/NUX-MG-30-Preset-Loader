@@ -1,6 +1,7 @@
-import { app, shell, BrowserWindow, ipcMain, session } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, session, Menu } from 'electron'
 import { join } from 'path'
 import { readFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import * as Midi from '@julusian/midi'
 
@@ -10,7 +11,13 @@ if (process.platform === 'win32') {
   app.commandLine.appendSwitch('enable-features', 'MidiManagerWinrt')
 }
 
-const icon = join(__dirname, '../../resources/icon.png')
+const iconPathCandidates = [
+  join(__dirname, '../../build/music-instrument-play-guitar-pick.ico'),
+  join(process.resourcesPath, 'music-instrument-play-guitar-pick.ico'),
+  join(process.resourcesPath, 'build/music-instrument-play-guitar-pick.ico'),
+  join(__dirname, '../../resources/icon.png')
+]
+const icon = iconPathCandidates.find((candidate) => existsSync(candidate))
 const chatTemplatePathCandidates = [
   join(__dirname, '../../resources/chat-template.txt'),
   join(process.resourcesPath, 'chat-template.txt'),
@@ -85,8 +92,9 @@ function createWindow(): void {
     width: 900,
     height: 670,
     show: false,
+    resizable: false,
     autoHideMenuBar: true,
-    ...(process.platform === 'linux' ? { icon } : {}),
+    ...(icon ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -167,7 +175,11 @@ app.whenReady().then(() => {
   )
 
   // Set app user model id for windows
-  electronApp.setAppUserModelId('com.electron')
+  electronApp.setAppUserModelId('com.ferilbp.nuxmg30loader')
+
+  if (process.platform !== 'darwin') {
+    Menu.setApplicationMenu(null)
+  }
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
