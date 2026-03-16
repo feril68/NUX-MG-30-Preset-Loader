@@ -187,11 +187,11 @@ export class MG30Controller {
   }
 
   private resolveIrOptionValue(param: string, rawValue: string): number {
-    if (param === 'micType') {
+    if (param === 'irMicType') {
       return Object.keys(MODEL_BASE_DICT.ir.irMicType).indexOf(rawValue)
     }
 
-    if (param === 'micPosition') {
+    if (param === 'irMicPosition') {
       return Object.keys(MODEL_BASE_DICT.ir.irMicPosition).indexOf(rawValue)
     }
 
@@ -216,11 +216,11 @@ export class MG30Controller {
   }
 
   private resolveIrKnobIndex(modelKey: string, param: string): number {
-    if (param === 'micType') {
+    if (param === 'irMicType') {
       return 1
     }
 
-    if (param === 'micPosition') {
+    if (param === 'irMicPosition') {
       return 2
     }
 
@@ -610,12 +610,12 @@ export class MG30Controller {
     await this.wait(this.blockApplyDelayMs)
 
     if (data.micConfig) {
-      if (data.micConfig.micType) {
-        this.setParam('ir', name, 'micType', data.micConfig.micType)
+      if (data.micConfig.irMicType) {
+        this.setParam('ir', name, 'irMicType', data.micConfig.irMicType)
         await this.wait(this.blockApplyDelayMs)
       }
-      if (data.micConfig.micPosition) {
-        this.setParam('ir', name, 'micPosition', data.micConfig.micPosition)
+      if (data.micConfig.irMicPosition) {
+        this.setParam('ir', name, 'irMicPosition', data.micConfig.irMicPosition)
         await this.wait(this.blockApplyDelayMs)
       }
     }

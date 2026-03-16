@@ -12,8 +12,8 @@ export interface MG30BlockConfig {
   parameter?: Record<string, number>
   cabinetName?: string
   micConfig?: {
-    micType?: string
-    micPosition?: string
+    irMicType?: string
+    irMicPosition?: string
   }
   cabinetParameter?: Record<string, number>
 }
