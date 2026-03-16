@@ -95,7 +95,7 @@ export const MODEL_BASE_DICT = {
         parameter: ['levelIr', 'lowCut', 'highCut'],
         hasMic: true
       },
-      '1960': {
+      amp1960: {
         parameter: ['levelIr', 'lowCut', 'highCut'],
         hasMic: true
       },
@@ -151,6 +151,7 @@ export const MODEL_BASE_DICT = {
         parameter: ['levelIr', 'lowCut', 'highCut'],
         hasMic: false
       },
+      thirdParty: {},
       swampThang: {
         parameter: ['levelIr', 'lowCut', 'highCut'],
         hasMic: false
